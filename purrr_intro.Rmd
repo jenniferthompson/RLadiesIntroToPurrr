@@ -95,6 +95,34 @@ Each of these has a match in the `walk` functions. While `map` returns an object
 1. `_int`: results in an integer vector
 1. `_dbl`: results in a double vector
 
+## Quick Examples
+
+Let's take two vectors, both `1:10`, and see what happens if we map over both using `map` variants. This will also be a basic introduction to using anonymous functions.
+
+```{r map_examples}
+v1 <- v2 <- 1:10
+
+# v1
+# v2
+
+## "." -> "this is what I'm iterating over"
+purrr::map(v1, ~ . * 3)
+## Returns a list, because we used map()
+
+purrr::map_dbl(v1, ~ . * 3)
+## Same values, but returns a vector of doubles
+
+purrr::map_chr(v1, ~ LETTERS[.])
+## Character vector of LETTERS[1:10]
+
+purrr::map2_dbl(v1, v2, sum)
+## We don't need an anonymous function; sum() knows to add v1[1] + v2[1], etc
+
+purrr::map_lgl(v1, is.numeric)
+## Just checking :)
+
+```
+
 # Example Time!
 
 We're going to try out some `map` uses, and some other fun surprises of `purrr`, by looking at some US National Parks Service data. [Happy 101st birthday, National Parks!](https://www.nps.gov/orgs/1207/08-23-2017-nps-birthday.htm) Specifically, we'll use iteration to:
@@ -161,6 +189,10 @@ We'll be using a few datasets:
 
 All three of the visit datasets are stored as separate CSV files for each year. You know what that means... iteration time!
 
+#### Lots of Details
+
+This is how I figured out how to write the code, if you're interested in the details.
+
 First, we'll take a look at the table names available in the recreation visits dataset. We do this by sending a query to data.world.
 
 ```{r look_at_rec_visits}
@@ -190,35 +222,15 @@ recvisits_2007
 
 ```
 
-Looks good. But what we *really* want is one single data.frame for recreation visits with all the years included, and a variable that indicates the year. We can do that in ONE STEP with `purrr::map_df`!
+Looks good. But what we *really* want is one single data.frame for recreation visits with all the years included, and a variable that indicates the year. And we also want the same thing for tent campers and backcountry campers, which are formatted in the exact same way.
 
-Remember, `map_df` knows that we want to iterate over something and get a data.frame as our final result. So here, we'll iterate over year, get a data.frame for each one, and bind all the rows together into a final data.frame. (You may have done something similar before, with `do.call(rbind, lapply(...))`, or `dplyr::bind_rows(list(...))`.)
+Remember... [DRY](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself) (Don't Repeat Yourself). So, clearly this is a case for a function!
 
-We can do this for recreational visits only using an anonymous function.
+#### Jump Back In Here
 
-```{r download_recvisits}
-rec_visits <- map_df(
-  ## Iterate over years 2007-2016, which are part of our file name
-  .x = 2007:2016,
-  ## What do we want to *do* with each year? -> Define our function
-  ## ~ : starts an anonymous function
-  ## . : says "this is where the thing I'm iterating over goes"
-  .f = ~ data.world::query(
-    data.world::qry_sql(sprintf("SELECT * FROM recreation_visits_%s", .)),
-    dataset = url_recvisits
-  ),
-  ## Add an indexing column to each dataset, so we can tell each year apart
-  .id = "year"
-)
+Remember, `map_df` knows that we want to iterate over something and get a data.frame as our final result. So here, we'll iterate over year, get a data.frame for 2007, 2008, ..., 2016, and combine all the rows into a final data.frame. (You may have done something similar before, with `do.call(rbind, lapply(...))`, or `dplyr::bind_rows(list(...))`.)
 
-## Make sure it looks good:
-rec_visits
-
-```
-
-LOOKING GOOD. Notice that the "year" column is a) a character and b) 1-9, not 2007-2016.
-
-HOWEVER. We also want the number of backcountry and tent campers. Those datasets look exactly like the total recreation visit data, so we want to do basically the same thing - which means in retrospect, we should have written our own "user-defined" function, because [DRY](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself) (Don't Repeat Yourself). So let's do that now.
+Here's our function:
 
 ```{r download_nps_data}
 download_nps_year <- function(
@@ -226,6 +238,7 @@ download_nps_year <- function(
   table_prefix,     ## "Prefix" of the data.world table we want
   url               ## URL of the dataset on data.world
 ){
+  ## Connecting with data.world
   data.world::query(
     data.world::qry_sql(sprintf("SELECT * FROM %s_%s", table_prefix, year)),
     dataset = url
@@ -276,7 +289,7 @@ rec_visits
 
 ```
 
-Note that the code looks a lot cleaner; anonymous functions are great for short functions that you don't want to reuse, or if you're new to function writing and want to start out small, but writing your own functions has a lot of benefits.
+Note that the code looks clean, and it'll be easier to maintain than writing the same anonymous function every time. Anonymous functions are great for short functions that you don't want to reuse, or if you're new to function writing and want to start out small, but defining your own functions has a lot of benefits.
 
 ## Data Management
 
@@ -339,7 +352,7 @@ datalist <- map(
 
 length(datalist)
 
-# save(datalist, file = "purrr_data.Rdata")
+save(datalist, file = "purrr_data.Rdata")
 
 ## If you don't have a data.world token, jump in here!
 ## load("purrr_data.Rdata")
