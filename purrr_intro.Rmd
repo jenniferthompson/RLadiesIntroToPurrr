@@ -1,0 +1,551 @@
+---
+title: "An Intro to the Magic of purrr"
+author: "Jennifer Thompson, R-Ladies November 2017"
+output:
+  html_notebook:
+    theme: journal
+    highlight: kate
+    toc: true
+    toc_float: yes
+    toc_depth: 2
+---
+
+# Caveats
+
+1. This is how I've used `purrr` over the last ~ year, and it holds many gifts that I have not yet discovered. There are many, many other use cases, and I'll link to some resources.
+1. The examples here are built to show you some of the functions available in `purrr`. There may be equally efficient ways to do this exact thing in base R, but the point is to give you ideas so you can think about how `purrr` might work for your purposes. *(They are also not meant to be detailed statistical analyses...)*
+1. I love base R and [the tidyverse](https://www.tidyverse.org/) equally, and use both all the time.
+
+# Iteration: A Definition
+
+Doing the same* thing to a bunch of things.
+
+<i>*ish</i>
+
+# But We Have Ways to Do That Already, Right?
+
+Sure. They include:
+
+- Copying and pasting
+- `for` loops
+- `lapply()`
+- `apply()`, `mapply()`, `sapply()`, `tapply()`, `vapply()`
+
+Nothing wrong with any of them if they work for you and your use case! But `purrr` can have some advantages.
+
+# Why You Might Use `purrr` vs Base R
+
+1. Consistent, readable syntax (compare to the `_apply()`s)
+1. Efficient (compare to `for` loops)
+1. Plays nicely with pipes `%>%`
+1. Returns the output you expect (type-stable)
+1. Reproducibility/ease of making changes
+1. Can use built-in functions (eg, `mean()`) or build your own, either inline (anonymous) or separately (user-defined)
+1. Particularly useful if you're working with [list-columns](https://jennybc.github.io/purrr-tutorial/ls13_list-columns.html), JSON data, other non-strictly-rectangular data formats
+
+# Preamble: Stop Worrying and Learn to Love the List
+
+You're probably already using lists even if you don't know it (for example, a data.frame is a special kind of list!). Generically, lists in R can have as many elements as you want, and each element can be of whatever type you want (including another list... it's [lists all the way down](https://en.wikipedia.org/wiki/Turtles_all_the_way_down)). For example, a totally valid list:
+
+```{r list_demo}
+list("a" = 1:10,          ## numeric vector of length 10
+     "b" = list(1:10),    ## list of length 1; element 1 = vector of length 10
+     "c" = LETTERS[1:10]) ## character vector of length 10
+
+```
+
+Other examples of lists include model fit objects (we'll see this with `lm` later), `ggplot2` objects - lots of functions return lists. R for Data Science has a great [intro to lists](http://r4ds.had.co.nz/lists.html) for more information.
+
+Lists' flexibility can allow you lots of freedom once you get comfortable with them; that flexibility can also introduce some complexity. `purrr` is built in part to let you take advantage of lists' benefits as well as some help dealing with the potential pitfalls.
+
+# `map`s Are Where It's At
+
+`map()` and its variants are the workhorses of `purrr`. They let us do the same or similar things to a bunch of things, get the output we expect, and sometimes get the final result we want in one step.
+
+## How `map` Works
+
+There are several variants of `map`, but they all work in the same general way:
+
+1. Over a set of arguments (called `.x` in `map()` classic),
+1. Do a function (`.f`)
+
+`map` can work with three kinds of functions:
+
+1. Built-in functions (`mean`, `subset`...)
+2. User-defined functions
+3. Anonymous functions, defined in the `map` call itself (we'll go over this syntax later)
+
+## "Amounts" of `map`
+
+You might use a slightly different version of `map` depending on how many things you want to change for each iteration.
+
+1. `map`: Do the exact same thing to a bunch of things (specifies one argument to a function)
+1. `map2`: Do the exact same thing to a bunch of things, except for one thing (specifies two arguments to a function)
+1. `pmap`: Do similar things to a bunch of things (specifies many arguments to a function)
+
+Each of these has a match in the `walk` functions. While `map` returns an object, `walk` is called for "side effects" (eg, plots, printed text, etc) and returns nothing. We'll see examples of both later.
+
+## Types of `map`
+
+`map` in its purest form will always give you a list. But if you've ever written `do.call(rbind, lapply(...))`, you know that sometimes you don't actually *want* a list. `purrr` is HERE FOR YOU. `map` has several type-specific variants:
+
+1. `_df`: my personal favorite - turns your result into a data.frame/tibble! Can do this via rows (default; also `map_dfr`) or columns (`map_dfc`)
+1. `_chr`: results in a character vector
+1. `_lgl`: results in a logical vector
+1. `_int`: results in an integer vector
+1. `_dbl`: results in a double vector
+
+# Example Time!
+
+We're going to try out some `map` uses, and some other fun surprises of `purrr`, by looking at some US National Parks Service data. [Happy 101st birthday, National Parks!](https://www.nps.gov/orgs/1207/08-23-2017-nps-birthday.htm) Specifically, we'll use iteration to:
+
+1. Extract data stored in many files and combine it into three datasets
+1. Fit the same model to three different outcomes
+1. Check assumptions for those models
+1. If needed, update the model
+1. Visualize our model results
+
+(Our statistical example is purposely kept very simple so the focus can be on iteration. If you choose to download this data, you may want to do more with it!)
+
+## Data Extraction{#extraction}
+
+NPS has been kind enough to post their visitor data on [data.world](https://data.world/nps), so we'll use the [data.world R package]() to download it.
+
+**Warning**: *You'll need 1. a data.world account and 2. an API token to run this code. I'll also put the data in the Github repo in case you don't want to mess with that. But data.world is pretty cool and you should check it out.*
+
+### Setup
+
+First we'll load the packages we need for our entire analysis, and if you're using it, set up our data.world connection.
+
+```{r libraries}
+## -- Load R libraries ---------------------------------------------------------
+suppressPackageStartupMessages(library(purrr)) ## obvs
+suppressPackageStartupMessages(library(dplyr)) ## for data management
+suppressPackageStartupMessages(library(tidyr)) ## for data management
+  ## Note: If you have the tidyverse package installed, library(tidyverse) will
+  ## load purrr along with several other core packages, including dplyr & tidyr
+suppressPackageStartupMessages(library(stringr)) ## for string manipulation
+suppressPackageStartupMessages(library(ggplot2)) ## for plotting
+suppressPackageStartupMessages(library(viridis)) ## for lovely color scales
+
+```
+
+```{r dataworldsetup}
+## -- data.world setup ---------------------------------------------------------
+## install.packages("data.world")
+library(data.world)
+
+## Set connection with data.world - only need to do this once per session
+
+## My data.world API token is stored in my .Renviron file, like this:
+## DW_API=abunchoflettersandnumbers
+## That lets me share my code with no security risk.
+saved_cfg <- data.world::save_config(Sys.getenv("DW_API"))
+
+## If you don't want to mess with .Renviron, you can also do:
+## data.world::set_config(cfg_env("whateveryourapitokenis;itwillbeverylong"))
+
+## Either way, set the configuration:
+data.world::set_config(saved_cfg)
+
+```
+
+### Download Data
+
+We'll be using a few datasets:
+
+1. [Annual Recreation Visits, 2007-2016](https://data.world/nps/annual-park-ranking-recreation-visits)
+1. [Annual Backcountry Campers, 2007-2016](https://data.world/nps/annual-park-ranking-backcountry-campers)
+1. [Annual Tent Campers, 2007-2016](https://data.world/nps/annual-park-ranking-tent-campers)
+1. [NPS Data Glossary](https://data.world/nps/glossary)
+
+All three of the visit datasets are stored as separate CSV files for each year. You know what that means... iteration time!
+
+First, we'll take a look at the table names available in the recreation visits dataset. We do this by sending a query to data.world.
+
+```{r look_at_rec_visits}
+## Name the URL for the dataset we want
+url_recvisits <- "https://data.world/nps/annual-park-ranking-recreation-visits"
+
+## Query data.world to get all available table names
+tables_recvisits <- data.world::query(
+  data.world::qry_sql("SELECT * FROM Tables"), ## qry_sql sends an SQL query
+  dataset = url_recvisits ## this is the dataset we want to query
+)
+
+## Take a look!
+tables_recvisits
+
+```
+
+We see a pattern! Thanks, NPS, for sensible table names. We know from scrolling data.world that each of these tables looks exactly the same. Let's write code to read in just 2007:
+
+```{r get_rec_visits}
+recvisits_2007 <- data.world::query(
+  data.world::qry_sql("SELECT * FROM recreation_visits_2007"),
+  dataset = url_recvisits
+)
+
+recvisits_2007
+
+```
+
+Looks good. But what we *really* want is one single data.frame for recreation visits with all the years included, and a variable that indicates the year. We can do that in ONE STEP with `purrr::map_df`!
+
+Remember, `map_df` knows that we want to iterate over something and get a data.frame as our final result. So here, we'll iterate over year, get a data.frame for each one, and bind all the rows together into a final data.frame. (You may have done something similar before, with `do.call(rbind, lapply(...))`, or `dplyr::bind_rows(list(...))`.)
+
+We can do this for recreational visits only using an anonymous function.
+
+```{r download_recvisits}
+rec_visits <- map_df(
+  ## Iterate over years 2007-2016, which are part of our file name
+  .x = 2007:2016,
+  ## What do we want to *do* with each year? -> Define our function
+  ## ~ : starts an anonymous function
+  ## . : says "this is where the thing I'm iterating over goes"
+  .f = ~ data.world::query(
+    data.world::qry_sql(sprintf("SELECT * FROM recreation_visits_%s", .)),
+    dataset = url_recvisits
+  ),
+  ## Add an indexing column to each dataset, so we can tell each year apart
+  .id = "year"
+)
+
+## Make sure it looks good:
+rec_visits
+
+```
+
+LOOKING GOOD. Notice that the "year" column is a) a character and b) 1-9, not 2007-2016.
+
+HOWEVER. We also want the number of backcountry and tent campers. Those datasets look exactly like the total recreation visit data, so we want to do basically the same thing - which means in retrospect, we should have written our own "user-defined" function, because [DRY](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself) (Don't Repeat Yourself). So let's do that now.
+
+```{r download_nps_data}
+download_nps_year <- function(
+  year = 2007:2016, ## Restricts the years we can input to 2007-2016
+  table_prefix,     ## "Prefix" of the data.world table we want
+  url               ## URL of the dataset on data.world
+){
+  data.world::query(
+    data.world::qry_sql(sprintf("SELECT * FROM %s_%s", table_prefix, year)),
+    dataset = url
+  ) %>%
+    ## As long as we're writing a custom function, let's...
+    ## Take only the variables we want
+    select(parkname, value) %>%
+    ## Add our own year column
+    mutate(year = year)
+}
+
+```
+
+Now we'll use our user-defined function and `map_df` to download the recreation visits, the tent camper data *and* and the backcountry camper data. Here,
+
+- `.x` is the only thing that we're iterating over (year)
+- `.f` is the function - the thing we're doing at each iteration (`download_nps_year()`)
+- `table_prefix` and `url` are arguments to our function that *stay the same* for each iteration
+
+```{r download_yearly_data}
+## Download recreation data
+rec_visits <- map_df(
+  .x = 2007:2016,
+  .f = download_nps_year,
+  table_prefix = "recreation_visits",
+  url = url_recvisits
+)
+
+## Download backcountry data
+url_back <- "https://data.world/nps/annual-park-ranking-backcountry-campers"
+back_visits <- map_df(
+  .x = 2007:2016,
+  .f = download_nps_year,
+  table_prefix = "backcountry_campers",
+  url = url_back
+)
+
+## Download tent camper data
+url_tent <- "https://data.world/nps/annual-park-ranking-tent-campers"
+tent_visits <- map_df(
+  .x = 2007:2016,
+  .f = download_nps_year,
+  table_prefix = "tent_campers",
+  url = url_tent
+)
+
+rec_visits
+
+```
+
+Note that the code looks a lot cleaner; anonymous functions are great for short functions that you don't want to reuse, or if you're new to function writing and want to start out small, but writing your own functions has a lot of benefits.
+
+## Data Management
+
+These next steps have very little to do with purrr but are necessary to keep going. Feel free to pay attention or not. We're going to:
+
+1. Download the park index data (includes state for each park)
+1. Restrict our data sets to national parks only
+
+```{r datamgmt}
+## -- Download park index (locations) ------------------------------------------
+park_index <- data.world::query(
+  data.world::qry_sql("SELECT * FROM park_index"),
+  dataset =  "https://data.world/nps/glossary"
+)
+
+## -- Restrict datasets to national parks --------------------------------------
+rec_visits <- rec_visits[grep(" NP$", rec_visits$parkname),]
+tent_visits <- tent_visits[grep(" NP$", tent_visits$parkname),]
+back_visits <- back_visits[grep(" NP$", back_visits$parkname),]
+
+## -- Collapse states into regions as defined by NPS ---------------------------
+## I got these from Wikipedia and combined some with small N
+reg_mtn <- c("MT", "WY", "UT", "CO", "AZ", "NM", "OK", "TX")
+reg_mw <- c("OH", "IN", "IL", "MI", "WI", "MN", "IA", "MO", "AR", "KS", "NB",
+            "SD", "ND", "ID, MT, WY")
+reg_pw <- c("AK", "WA", "OR", "CA", "NV", "ID", "HI", "CA, NV",
+            "American Samoa")
+reg_east <- c("ME", "NH", "VT", "NY", "MA", "CT", "RI", "NJ", "PA", "DE",
+              "MD", "WV", "VA", "KY", "TN", "MS", "LA", "AL", "NC", "SC", "GA",
+              "FL", "VI", "PR", "NC, TN")
+
+park_index <- park_index %>%
+  filter(type == "NP") %>%
+  mutate(
+    region = factor(
+      ifelse(location %in% reg_east, 1,
+      ifelse(location %in% reg_mtn, 2,
+      ifelse(location %in% reg_mw, 3,
+      ifelse(location %in% reg_pw, 4, NA)))),
+      levels = 1:4,
+      labels = c("Eastern US", "Intermountain", "Midwest", "Pacific NW")
+    ) 
+  ) %>%
+  unite(parkname, name, type, sep = " ", remove = FALSE)
+
+```
+
+## Create Our Master List
+
+A lot of our iteration will be over our three visit datasets: recreational visits, tent campers and backcountry campers. We'll use `map` and `purrr::reduce` to merge the state and region for each park onto the visitor data and create a list of datasets to iterate over later, all in one step!
+
+```{r merge_region}
+## -- Merge region onto yearly datasets ----------------------------------------
+datalist <- map(
+  ## Initial list = all three datasets
+  .x = list(rec_visits, tent_visits, back_visits),
+  ## For each, reduce() uses left_join to merge on state/region by parkname
+  .f = ~ reduce(list(., park_index), left_join, by = "parkname")
+)
+
+length(datalist)
+
+# save(datalist, file = "purrr_data.Rdata")
+
+## If you don't have a data.world token, jump in here!
+## load("purrr_data.Rdata")
+
+```
+
+## Run Models + Check Residuals
+
+Let's say we want to predict the number of a) total recreational, b) tent campers, and c) backcountry visitors per year using the year, the region, and an interaction between the two. You guessed it: We can use `map`! This seems like a good time for an anonymous function.
+
+```{r fit_org_models}
+## Fit the same model to each dataset
+orgmod_list <- map(
+  .x = datalist,
+  .f = ~ lm(value ~ year * region, data = .)
+)
+
+orgmod_list
+
+```
+
+Looks like everything went well, but lots of us are statisticians, after all. Do these models fit the usual assumptions? Let's quickly look at some residuals vs fitted plots using `purrr`'s `walk()` function, which you can call when you want the *side effects* of a function instead of returning an object.
+
+```{r rpplots}
+par(mfrow = c(1, 3))
+walk(orgmod_list, ~ plot(resid(.) ~ predict(.)))
+
+```
+
+Hmm... some weirdness. What's the distribution of our outcome?
+
+```{r histograms}
+walk(datalist, ~ print(ggplot(data = ., aes(x = value)) + geom_histogram()))
+
+```
+
+Some skewness there! Let's log transform our outcome and refit the models.
+
+```{r logtrans}
+## Add log transformed value to each dataset
+## One base way
+# for(i in 1:length(datalist)){
+#   datalist[[i]]$logvalue <- log(datalist[[i]]$value)
+# }
+
+## purrr + dplyr way: apply the log function to the value column in each dataset
+datalist <- datalist %>%
+  map(~ mutate_at(.x, "value", log))
+
+## Refit linear model to each dataset, recheck RP plots
+logmod_list <- map(datalist, ~ lm(value ~ year * region, data = .))
+
+par(mfrow = c(1, 3))
+walk(logmod_list, ~ plot(resid(.) ~ predict(.)))
+
+```
+
+Looking better. Just out of curiosity, what's our R^2^ on those models? `summary()` of an `lm` object returns a list, of which one element is the adjusted R^2^. We can extract that value for each of our models really quickly using `map_dbl`.
+
+```{r r2}
+## You can do this two ways, whichever you find more readable:
+## All in one line:
+round(map_dbl(logmod_list, ~ summary(.)$adj.r.squared), 2)
+
+## In a pipe:
+logmod_list %>%
+  map(summary) %>%
+  map_dbl(.f = "adj.r.squared") %>%
+  ## Passing .f a quoted string means "get this element out of the object in .x"
+  round(2)
+
+```
+
+Well, that's not great, but that's not really the point now is it. Moving on!
+
+## Plot Results
+
+Now let's say we want to generate separate plots for the predicted visitors over time by region for each dataset, and save each plot as a PDF. We're going to
+
+1. Create a list of data.frames with predicted values for each region and year
+2. Plot each
+3. Save those plots
+
+In this chunk of code, we use:
+
+- `purrr::cross_df` to get all possible combinations of two vectors and put them in a data.frame *(this does essentially the same thing as `expand.grid`, but `cross` can also create lists, which can be really helpful for simulations, for example)*
+- `purrr::pluck` to extract elements of a list - this can be helpful, since list notation can get confusing in its natural habitat, mixing `[[double brackets]][singlebrackets]$dollarsigns`
+- `purrr::map` in a pipeline, starting with one list of elements and putting it through a process with multiple steps
+
+```{r predvals}
+## -- Create base data set with records for which we want predicted values -----
+preddata <- cross_df(
+  ## You can access the columns of one of our datasets using purrr::pluck() or
+  ## base R; both ways shown here
+  .l = list("year" = unique(pluck(datalist, 1, "year")),
+            "region" = levels(datalist[[1]]$region))
+)
+
+## -- Get actual predicted values for each year, region ------------------------
+pred_list <- logmod_list %>%
+  ## Apply the predict function to each model
+  map(predict, newdata = preddata, se.fit = TRUE) %>%
+  ## predict() returns a list; extract the fit and se.fit elements
+  ## Again, elements of our list are extracted two ways to compare
+  map(~ data.frame(fit = pluck(., "fit"), se = .$se.fit) %>%
+        ## Calculate confidence limits
+        mutate(lcl = fit - qnorm(0.975) * se,
+               ucl = fit + qnorm(0.975) * se)) %>%
+  ## Add year and region onto each
+  map(dplyr::bind_cols, preddata)
+
+```
+
+```{r plot_pred}
+## -- Write a function to plot values for a given dataset ----------------------
+plot_predicted <- function(df, vscale, maintitle){
+  ## Make sure df has all the columns we need
+  if(!all(c("fit", "se", "lcl", "ucl", "year", "region") %in% names(df))){
+    stop("df should have columns fit, se, lcl, ucl, year, region")
+  }
+  
+  ## Create a plot faceted by region
+  p <- ggplot(data = df, aes(x = year, y = fit)) +
+    facet_wrap(~ region, nrow = 2) +
+    geom_ribbon(aes(ymin = lcl, ymax = ucl, fill = region), alpha = 0.4) +
+    geom_line(aes(color = region), size = 2) +
+    scale_fill_viridis(option = vscale, discrete = TRUE, end = 0.75) +
+    scale_colour_viridis(option = vscale, discrete = TRUE, end = 0.75) +
+    labs(title = maintitle,
+         x = NULL, y = "Log(Visitors)") +
+    theme(legend.position = "none")
+  
+  return(p)
+  
+}
+
+```
+
+Notice our function has three arguments, which means we can't use `map`. We need the big guns: `pmap`. The `p` stands for `parallel`, and we're going to iterate over a **list** of arguments in *parallel* to get the plots we want. First, we'll set up our named list of arguments.
+
+```{r set_plot_args}
+plot_args <- list(
+  "df" = pred_list, ## list with three elements
+  "vscale" = c("D", "A", "C"),
+  "maintitle" = c("Total Recreational Visits",
+                  "Tent Campers",
+                  "Backcountry Campers")
+)
+
+```
+
+Because we wrote our function already, once that list is done, it's one simple line to generate all of our plots:
+
+```{r generate_plots}
+nps_plots <- pmap(plot_args, plot_predicted)
+
+```
+
+Notice that nothing printed; `pmap` saved these three plots to a list, but now we need to do something with them. We could print them to our screen with `walk(nps_plots, print)`, OR we could save them to PDFs using `walk2`. Remember, `map2` and `walk2` iterate over *exactly two* arguments - here, it'll be our list of plots, and a list of file names.
+
+```{r save_plots}
+walk2(.x = c("rec.pdf", "tent.pdf", "backcountry.pdf"),
+      .y = nps_plots,
+      ggsave,
+      width = 8, height = 6)
+
+```
+
+Thus ends our example!
+
+## Bonus Points
+***Note**: If you've been paying attention, you might be thinking that back in [Data Extraction](#extraction), we could have read in all our datasets and combined them in one `pmap_df` call. You would be correct! We'd probably want to add a bit to `download_nps_year()` to identify what visit type we're looking at, but otherwise, we'd do it just like this:*
+
+```{r pmap_readdata}
+showoff <- pmap_df(
+  .l = list(
+    "year" = rep(2007:2016, 3),
+    "table_prefix" = c(rep("recreation_visits", 10),
+                       rep("tent_campers", 10),
+                       rep("backcountry_campers", 10)),
+    "url" = c(rep(url_recvisits, 10), rep(url_tent, 10), rep(url_back, 10))
+  ),
+  .f = download_nps_year
+)
+
+```
+
+# BUT WAIT! THERE'S MORE!
+
+A few purrr features we haven't mentioned yet:
+
+- `partial`, for when you want to create a partially specified version of a function (eg, `q25 <- partial(quantile, probs = 0.25, na.rm = TRUE)`)
+- `flatten`, for removing hierarchies from a list
+- `safely`, `quietly`, `possibly` - can be helpful especially when writing functions or packages
+- `invoke`, `modify` - I haven't used these a ton yet
+- List-columns can be your friend if you want to store complex data, results, etc in a tidy way; this is likely a whole other meetup, but `purrr` functions can be really helpful when working with these. Jenny Bryan's tutorial linked below is a great resource here.
+
+# purrr resources
+
+- [Official page on tidyverse.org](http://purrr.tidyverse.org/)
+- [RStudio cheatsheet](https://www.rstudio.com/resources/cheatsheets/) (under "Apply Functions")
+- [DataCamp: Writing Functions in R](https://www.datacamp.com/courses/writing-functions-in-r/)
+- [Charlotte Wickham's purrr tutorial](https://github.com/cwickham/purrr-tutorial)
+- [Jenny Bryan's purrr tutorial](https://jennybc.github.io/purrr-tutorial/): particularly great if you love the idea of list-columns
+- [Hadley Wickham on purrr vs *apply](https://stackoverflow.com/questions/45101045/why-use-purrrmap-instead-of-lapply/47123420#47123420)
+- Fun use cases:
+    - A [roundup of blog posts](https://maraaverick.rbind.io/2017/09/purrr-ty-posts/) curated by Mara Averick
+    - [Peter Kamerman on bootstrap CIs](https://www.painblogr.org/2017-10-18-purrring-through-bootstraps.html)
+    - [Ken Butler on handling errors with safely/possibly](https://nxskok.github.io/blog/2017/09/07/safely-possibly/)
