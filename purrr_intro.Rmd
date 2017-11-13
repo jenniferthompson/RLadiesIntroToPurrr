@@ -285,7 +285,8 @@ tent_visits <- map_df(
   url = url_tent
 )
 
-rec_visits
+## Take a look at one of our datasets
+sample_n(rec_visits, size = 10)
 
 ```
 
@@ -352,7 +353,7 @@ datalist <- map(
 
 length(datalist)
 
-save(datalist, file = "purrr_data.Rdata")
+# save(datalist, file = "purrr_data.Rdata")
 
 ## If you don't have a data.world token, jump in here!
 ## load("purrr_data.Rdata")
