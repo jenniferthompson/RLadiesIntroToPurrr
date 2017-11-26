@@ -1,6 +1,6 @@
 ---
 title: "An Intro to the Magic of purrr"
-author: "Jennifer Thompson, R-Ladies November 2017"
+author: "Jennifer Thompson, November 2017"
 output:
   html_notebook:
     theme: journal
@@ -240,12 +240,11 @@ download_nps_year <- function(
 ){
   ## Connecting with data.world
   data.world::query(
-    data.world::qry_sql(sprintf("SELECT * FROM %s_%s", table_prefix, year)),
+    data.world::qry_sql(
+      sprintf("SELECT parkname, value FROM %s_%s", table_prefix, year)
+    ),
     dataset = url
   ) %>%
-    ## As long as we're writing a custom function, let's...
-    ## Take only the variables we want
-    select(parkname, value) %>%
     ## Add our own year column
     mutate(year = year)
 }
