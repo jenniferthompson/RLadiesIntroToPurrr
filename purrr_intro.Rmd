@@ -1,6 +1,6 @@
 ---
 title: "An Intro to the Magic of purrr"
-author: "Jennifer Thompson, November 2017"
+author: "Jennifer Thompson, MPH"
 output:
   html_notebook:
     theme: journal
