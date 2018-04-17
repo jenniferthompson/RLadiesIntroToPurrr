@@ -152,7 +152,6 @@ suppressPackageStartupMessages(library(dplyr)) ## for data management
 suppressPackageStartupMessages(library(tidyr)) ## for data management
   ## Note: If you have the tidyverse package installed, library(tidyverse) will
   ## load purrr along with several other core packages, including dplyr & tidyr
-suppressPackageStartupMessages(library(stringr)) ## for string manipulation
 suppressPackageStartupMessages(library(ggplot2)) ## for plotting
 suppressPackageStartupMessages(library(viridis)) ## for lovely color scales
 
